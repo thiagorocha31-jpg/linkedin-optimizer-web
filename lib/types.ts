@@ -86,7 +86,7 @@ export interface GeneratedDraft {
   headline: string;
   about: string;
   skills: string[];
-  experience_suggestions: string;
+  experience: ExperienceEntry[];
 }
 
 export type GenerationSection = keyof GeneratedDraft;

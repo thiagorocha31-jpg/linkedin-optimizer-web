@@ -143,7 +143,7 @@ export function WizardShell() {
         if (draft.headline !== undefined) updates.headline = draft.headline;
         if (draft.about !== undefined) updates.about = draft.about;
         if (draft.skills !== undefined) updates.skills = draft.skills;
-        // experience_suggestions is text advice, not directly applied
+        if (draft.experience !== undefined) updates.experience = draft.experience;
         return { ...prev, ...updates };
       });
     },

@@ -44,11 +44,14 @@ ${role.description}
 - Then add complementary skills from Tier 1-3 keywords not already covered
 - Fill remaining slots with broadly relevant executive skills
 
-### Experience Suggestions (20% weight for scoring)
-- Provide actionable suggestions for improving experience descriptions
-- Each suggestion should include quantified metrics (3-5 per role)
-- Reference target keywords naturally
+### Experience (20% weight for scoring)
+- Generate structured experience entries based on the resume/context provided
+- Each entry needs: title, company, duration_months, description, is_current
+- Each description must be 200+ characters with 3-5 quantified metrics ($, %, team sizes, timeframes)
+- Weave target keywords naturally into descriptions
 - Focus on impact and results, not responsibilities
+- Include at least 3 experience entries
+- Mark the most recent role as is_current: true
 
 ## Keywords to Weave In
 
@@ -67,7 +70,15 @@ Return ONLY valid JSON matching this exact structure:
   "headline": "string (max 220 chars)",
   "about": "string (1800-2600 chars, use \\n for line breaks)",
   "skills": ["string array, exactly 50 items"],
-  "experience_suggestions": "string with markdown formatting"
+  "experience": [
+    {
+      "title": "string",
+      "company": "string",
+      "duration_months": number,
+      "description": "string (200+ chars with quantified results)",
+      "is_current": boolean
+    }
+  ]
 }`;
 }
 
@@ -138,16 +149,13 @@ export function buildRegenPrompt(
   guidance: string,
   currentValue: string | string[]
 ): string {
-  const sectionName =
-    section === "experience_suggestions"
-      ? "experience suggestions"
-      : section;
-
   const currentStr = Array.isArray(currentValue)
-    ? currentValue.join(", ")
-    : currentValue;
+    ? JSON.stringify(currentValue, null, 2)
+    : typeof currentValue === "string"
+      ? currentValue
+      : JSON.stringify(currentValue, null, 2);
 
-  return `Regenerate ONLY the "${sectionName}" section of the LinkedIn profile.
+  return `Regenerate ONLY the "${section}" section of the LinkedIn profile.
 
 Current version:
 ${currentStr}
@@ -155,5 +163,5 @@ ${currentStr}
 User's guidance for regeneration:
 ${guidance}
 
-Return ONLY valid JSON with a single key "${section}" and the regenerated value. For skills, return an array. For all others, return a string.`;
+Return ONLY valid JSON with a single key "${section}" and the regenerated value. For skills, return a string array. For experience, return an array of objects with {title, company, duration_months, description, is_current}. For headline/about, return a string.`;
 }

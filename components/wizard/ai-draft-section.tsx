@@ -5,19 +5,30 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import type { GeneratedDraft } from "@/lib/types";
+import type { ExperienceEntry, GeneratedDraft } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+type SectionValue = string | string[] | ExperienceEntry[];
 
 interface AiDraftSectionProps {
   section: keyof GeneratedDraft;
   label: string;
-  value: string | string[];
-  currentValue?: string | string[];
+  value: SectionValue;
+  currentValue?: SectionValue;
   accepted: boolean;
   onAccept: () => void;
-  onEdit: (value: string | string[]) => void;
+  onEdit: (value: SectionValue) => void;
   onRegenerate: (section: keyof GeneratedDraft, guidance: string) => void;
   regenerating: boolean;
+}
+
+function isExperienceArray(val: SectionValue): val is ExperienceEntry[] {
+  return (
+    Array.isArray(val) &&
+    val.length > 0 &&
+    typeof val[0] === "object" &&
+    "title" in val[0]
+  );
 }
 
 export function AiDraftSection({
@@ -36,22 +47,42 @@ export function AiDraftSection({
   const [regenGuidance, setRegenGuidance] = useState("");
 
   const isSkills = section === "skills";
-  const displayValue = Array.isArray(value) ? value.join(", ") : value;
-  const charCount = Array.isArray(value)
-    ? `${value.length} items`
-    : `${value.length} chars`;
+  const isExperience = section === "experience";
+
+  const displayValue = isExperience
+    ? ""
+    : Array.isArray(value)
+      ? (value as string[]).join(", ")
+      : (value as string);
+
+  const charCount = isExperience
+    ? `${(value as ExperienceEntry[]).length} entries`
+    : Array.isArray(value)
+      ? `${value.length} items`
+      : `${(value as string).length} chars`;
 
   const hasExisting =
-    currentValue &&
-    (Array.isArray(currentValue) ? currentValue.length > 0 : currentValue.length > 0);
+    currentValue !== undefined &&
+    (Array.isArray(currentValue) ? currentValue.length > 0 : typeof currentValue === "string" ? currentValue.length > 0 : false);
 
   const startEdit = useCallback(() => {
-    setEditValue(displayValue);
+    if (isExperience) {
+      setEditValue(JSON.stringify(value, null, 2));
+    } else {
+      setEditValue(displayValue);
+    }
     setMode("edit");
-  }, [displayValue]);
+  }, [displayValue, isExperience, value]);
 
   const saveEdit = useCallback(() => {
-    if (isSkills) {
+    if (isExperience) {
+      try {
+        const parsed = JSON.parse(editValue);
+        onEdit(parsed);
+      } catch {
+        return; // Don't save invalid JSON
+      }
+    } else if (isSkills) {
       onEdit(
         editValue
           .split(",")
@@ -62,7 +93,7 @@ export function AiDraftSection({
       onEdit(editValue);
     }
     setMode("view");
-  }, [editValue, isSkills, onEdit]);
+  }, [editValue, isSkills, isExperience, onEdit]);
 
   const submitRegen = useCallback(() => {
     if (regenGuidance.trim()) {
@@ -143,7 +174,7 @@ export function AiDraftSection({
           <Textarea
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
-            rows={isSkills ? 4 : section === "about" ? 12 : section === "experience_suggestions" ? 10 : 3}
+            rows={isExperience ? 16 : isSkills ? 4 : section === "about" ? 12 : 3}
             className="font-mono text-sm"
           />
         )}
@@ -157,7 +188,11 @@ export function AiDraftSection({
             <Textarea
               value={regenGuidance}
               onChange={(e) => setRegenGuidance(e.target.value)}
-              placeholder="e.g., Make it shorter, emphasize AI more, add my Bain background..."
+              placeholder={
+                isExperience
+                  ? "e.g., Add more quantified metrics, emphasize PE transformation experience..."
+                  : "e.g., Make it shorter, emphasize AI more, add my Bain background..."
+              }
               rows={2}
               autoFocus
             />
@@ -174,17 +209,36 @@ export function AiDraftSection({
         {/* Display mode */}
         {mode === "view" && (
           <>
-            {isSkills && Array.isArray(value) ? (
+            {isExperience && isExperienceArray(value) ? (
+              <div className="space-y-3">
+                {(value as ExperienceEntry[]).map((entry, i) => (
+                  <div key={i} className="rounded-lg border bg-muted/30 p-3 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold">
+                        {entry.title}
+                      </p>
+                      {entry.is_current && (
+                        <Badge variant="secondary" className="text-xs">
+                          Current
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {entry.company} &middot; {entry.duration_months} months
+                    </p>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                      {entry.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : isSkills && Array.isArray(value) ? (
               <div className="flex flex-wrap gap-1.5">
-                {value.map((skill, i) => (
+                {(value as string[]).map((skill, i) => (
                   <Badge key={i} variant="secondary" className="text-xs">
                     {skill}
                   </Badge>
                 ))}
-              </div>
-            ) : section === "experience_suggestions" ? (
-              <div className="prose prose-sm max-w-none text-sm whitespace-pre-wrap">
-                {displayValue}
               </div>
             ) : (
               <p className="text-sm whitespace-pre-wrap leading-relaxed">
@@ -202,9 +256,17 @@ export function AiDraftSection({
                   <p className="text-xs font-medium text-muted-foreground mb-1">
                     Current:
                   </p>
-                  {isSkills && Array.isArray(currentValue) ? (
+                  {isExperience && isExperienceArray(currentValue!) ? (
+                    <div className="space-y-2">
+                      {(currentValue as ExperienceEntry[]).map((entry, i) => (
+                        <div key={i} className="text-xs text-muted-foreground">
+                          <span className="font-medium">{entry.title}</span> at {entry.company} ({entry.duration_months}mo)
+                        </div>
+                      ))}
+                    </div>
+                  ) : isSkills && Array.isArray(currentValue) ? (
                     <div className="flex flex-wrap gap-1">
-                      {currentValue.map((s, i) => (
+                      {(currentValue as string[]).map((s, i) => (
                         <Badge key={i} variant="outline" className="text-xs opacity-60">
                           {s}
                         </Badge>
@@ -213,8 +275,8 @@ export function AiDraftSection({
                   ) : (
                     <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-6">
                       {Array.isArray(currentValue)
-                        ? currentValue.join(", ")
-                        : currentValue}
+                        ? (currentValue as string[]).join(", ")
+                        : (currentValue as string)}
                     </p>
                   )}
                 </div>

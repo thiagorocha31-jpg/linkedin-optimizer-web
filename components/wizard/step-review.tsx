@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { GenerationProgress } from "./generation-progress";
 import { AiDraftSection } from "./ai-draft-section";
 import type {
+  ExperienceEntry,
   GeneratedDraft,
   GenerationContext,
   LinkedInProfile,
@@ -28,8 +29,8 @@ const SECTION_CONFIG: {
 }[] = [
   { key: "headline", label: "Headline", profileKey: "headline" },
   { key: "about", label: "About Section", profileKey: "about" },
+  { key: "experience", label: "Experience", profileKey: "experience" },
   { key: "skills", label: "Skills (50)", profileKey: "skills" },
-  { key: "experience_suggestions", label: "Experience Suggestions" },
 ];
 
 export function StepReview({
@@ -151,7 +152,7 @@ export function StepReview({
 
   // Edit a section in the draft
   const handleEdit = useCallback(
-    (key: keyof GeneratedDraft, value: string | string[]) => {
+    (key: keyof GeneratedDraft, value: string | string[] | ExperienceEntry[]) => {
       if (!draft) return;
       setDraft({ ...draft, [key]: value });
       // If it was accepted, re-apply the edited version
@@ -239,9 +240,7 @@ export function StepReview({
 
     for (const { key } of SECTION_CONFIG) {
       allAccepted[key] = true;
-      if (key !== "experience_suggestions") {
-        (fullDraft as Record<string, unknown>)[key] = draft[key];
-      }
+      (fullDraft as Record<string, unknown>)[key] = draft[key];
     }
 
     setAccepted(allAccepted);
@@ -250,9 +249,7 @@ export function StepReview({
   }, [draft, onApplyDraft, onNext]);
 
   const isComplete = !generating && draft !== null;
-  const allAccepted = SECTION_CONFIG.filter(
-    (s) => s.key !== "experience_suggestions"
-  ).every((s) => accepted[s.key]);
+  const allAccepted = SECTION_CONFIG.every((s) => accepted[s.key]);
 
   return (
     <div className="space-y-6">

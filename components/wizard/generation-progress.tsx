@@ -6,7 +6,7 @@ const SECTIONS = [
   { key: "headline", label: "Headline", icon: "H" },
   { key: "about", label: "About Section", icon: "A" },
   { key: "skills", label: "Skills", icon: "S" },
-  { key: "experience_suggestions", label: "Experience Tips", icon: "E" },
+  { key: "experience", label: "Experience", icon: "E" },
 ] as const;
 
 interface GenerationProgressProps {
