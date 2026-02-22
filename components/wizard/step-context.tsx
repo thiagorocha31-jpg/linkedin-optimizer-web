@@ -38,7 +38,7 @@ export function StepContext({
 
   const handleFile = useCallback(
     async (file: File) => {
-      if (file.type !== "application/pdf") {
+      if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
         setError("Only PDF files are supported");
         return;
       }
