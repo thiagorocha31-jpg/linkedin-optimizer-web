@@ -70,11 +70,20 @@ async function handleAnalyze() {
 
     const profile = scrapeProfile();
 
-    // Encode as base64 in URL fragment (never sent to server)
-    const json = JSON.stringify(profile);
-    const encoded = btoa(unescape(encodeURIComponent(json)));
-    const url = OPTIMIZER_URL + "?import=extension#data=" + encoded;
+    // Log scraped data for debugging
+    console.log("[LinkedIn Optimizer] Scraped profile:", profile);
+    console.log("[LinkedIn Optimizer] Name:", profile.name);
+    console.log("[LinkedIn Optimizer] Headline:", profile.headline);
+    console.log("[LinkedIn Optimizer] About length:", profile.about.length);
+    console.log("[LinkedIn Optimizer] Experience:", profile.experience.length, "entries");
+    console.log("[LinkedIn Optimizer] Skills:", profile.skills.length, "skills");
 
+    // Encode as base64 in URL fragment (never sent to server)
+    var json = JSON.stringify(profile);
+    var encoded = btoa(unescape(encodeURIComponent(json)));
+    var url = OPTIMIZER_URL + "?import=extension#data=" + encoded;
+
+    console.log("[LinkedIn Optimizer] URL length:", url.length);
     window.open(url, "_blank");
 
     if (btn) {

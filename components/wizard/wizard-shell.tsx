@@ -26,25 +26,42 @@ const STEPS = [
 const STORAGE_KEY = "linkedin-optimizer-profile";
 const SNAPSHOT_KEY = "linkedin-optimizer-snapshot";
 
-/** Try to decode extension data from URL fragment hash */
-function loadFromExtension(): LinkedInProfile | null {
-  if (typeof window === "undefined") return null;
+// ---------------------------------------------------------------------------
+// Capture extension data IMMEDIATELY on module load, before React renders.
+// The URL hash (#data=...) is only available on the first page load.
+// If we wait for useEffect, Suspense re-renders may lose it.
+// ---------------------------------------------------------------------------
+let _extensionData: LinkedInProfile | null = null;
+let _hadExtensionImport = false;
+
+if (typeof window !== "undefined") {
   try {
     const hash = window.location.hash;
-    if (!hash.startsWith("#data=")) return null;
-    const encoded = hash.slice(6); // Remove "#data="
-    const json = decodeURIComponent(escape(atob(encoded)));
-    const data = JSON.parse(json);
-    // Clean the hash so it doesn't persist on refresh
-    history.replaceState(null, "", window.location.pathname + window.location.search);
-    return { ...EMPTY_PROFILE, ...data };
-  } catch {
-    return null;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("import") === "extension" && hash.startsWith("#data=")) {
+      const encoded = hash.slice(6);
+      const json = decodeURIComponent(escape(atob(encoded)));
+      const data = JSON.parse(json);
+      _extensionData = { ...EMPTY_PROFILE, ...data };
+      _hadExtensionImport = true;
+      // Clean the URL immediately
+      history.replaceState(null, "", window.location.pathname);
+    }
+  } catch (e) {
+    console.error("[LinkedIn Optimizer] Failed to decode extension data:", e);
   }
 }
 
 function loadProfile(): LinkedInProfile {
   if (typeof window === "undefined") return { ...EMPTY_PROFILE };
+
+  // Extension data takes priority (captured at module load)
+  if (_extensionData) {
+    const data = _extensionData;
+    _extensionData = null; // Consume it so refreshes don't re-use
+    return data;
+  }
+
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) return JSON.parse(saved);
@@ -64,30 +81,20 @@ export function WizardShell() {
   const [profile, setProfile] = useState<LinkedInProfile>(loadProfile);
   const [selectedRole, setSelectedRole] = useState<string>("");
   const [snapshot, setSnapshot] = useState<AnalysisReport | null>(null);
-  const [importedFromExtension, setImportedFromExtension] = useState(false);
+  const [importedFromExtension] = useState(_hadExtensionImport);
   const initRef = useRef(false);
 
-  // URL params: ?role=... or ?import=extension with #data=...
+  // URL param: ?role=pe-operating-partner (non-extension case)
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
 
-    // Check for extension import first
-    const importParam = searchParams.get("import");
-    if (importParam === "extension") {
-      const extensionProfile = loadFromExtension();
-      if (extensionProfile) {
-        setProfile(extensionProfile);
-        setImportedFromExtension(true);
-        // Go straight to role selection (step 1) so user picks a target role
-        setStep(1);
-        // Clean the URL
-        history.replaceState(null, "", window.location.pathname);
-        return;
-      }
+    // Skip if we already handled extension import at module level
+    if (_hadExtensionImport) {
+      _hadExtensionImport = false; // Reset for any future re-mounts
+      return;
     }
 
-    // Check for role pre-selection
     const roleParam = searchParams.get("role");
     if (roleParam) {
       const normalized = roleParam.replace(/-/g, " ");
