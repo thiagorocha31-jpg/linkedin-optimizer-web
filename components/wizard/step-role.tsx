@@ -15,6 +15,8 @@ interface StepRoleProps {
 const ROLE_ICONS: Record<string, string> = {
   "PE Operating Partner": "\u{1F3AF}",
   "Portfolio Company CEO/COO": "\u{1F3E2}",
+  "VP Transformation": "\u{1F680}",
+  "Chief of Staff": "\u{2699}",
   Custom: "\u{1F527}",
 };
 
