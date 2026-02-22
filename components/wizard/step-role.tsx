@@ -8,6 +8,8 @@ interface StepRoleProps {
   roles: TargetRole[];
   selectedRole: string;
   onSelect: (roleName: string) => void;
+  importedFromExtension?: boolean;
+  profileName?: string;
 }
 
 const ROLE_ICONS: Record<string, string> = {
@@ -16,9 +18,17 @@ const ROLE_ICONS: Record<string, string> = {
   Custom: "\u{1F527}",
 };
 
-export function StepRole({ roles, selectedRole, onSelect }: StepRoleProps) {
+export function StepRole({ roles, selectedRole, onSelect, importedFromExtension, profileName }: StepRoleProps) {
   return (
     <div className="space-y-6">
+      {importedFromExtension && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950">
+          <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+            Profile imported{profileName ? ` for ${profileName}` : ""} from LinkedIn.
+            Now pick a target role to see your score.
+          </p>
+        </div>
+      )}
       <div>
         <h2 className="text-2xl font-bold">What role are you targeting?</h2>
         <p className="mt-1 text-muted-foreground">

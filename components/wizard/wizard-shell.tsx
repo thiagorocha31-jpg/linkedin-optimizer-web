@@ -26,6 +26,23 @@ const STEPS = [
 const STORAGE_KEY = "linkedin-optimizer-profile";
 const SNAPSHOT_KEY = "linkedin-optimizer-snapshot";
 
+/** Try to decode extension data from URL fragment hash */
+function loadFromExtension(): LinkedInProfile | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const hash = window.location.hash;
+    if (!hash.startsWith("#data=")) return null;
+    const encoded = hash.slice(6); // Remove "#data="
+    const json = decodeURIComponent(escape(atob(encoded)));
+    const data = JSON.parse(json);
+    // Clean the hash so it doesn't persist on refresh
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    return { ...EMPTY_PROFILE, ...data };
+  } catch {
+    return null;
+  }
+}
+
 function loadProfile(): LinkedInProfile {
   if (typeof window === "undefined") return { ...EMPTY_PROFILE };
   try {
@@ -47,12 +64,30 @@ export function WizardShell() {
   const [profile, setProfile] = useState<LinkedInProfile>(loadProfile);
   const [selectedRole, setSelectedRole] = useState<string>("");
   const [snapshot, setSnapshot] = useState<AnalysisReport | null>(null);
+  const [importedFromExtension, setImportedFromExtension] = useState(false);
   const initRef = useRef(false);
 
-  // URL param: ?role=pe-operating-partner
+  // URL params: ?role=... or ?import=extension with #data=...
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
+
+    // Check for extension import first
+    const importParam = searchParams.get("import");
+    if (importParam === "extension") {
+      const extensionProfile = loadFromExtension();
+      if (extensionProfile) {
+        setProfile(extensionProfile);
+        setImportedFromExtension(true);
+        // Go straight to role selection (step 1) so user picks a target role
+        setStep(1);
+        // Clean the URL
+        history.replaceState(null, "", window.location.pathname);
+        return;
+      }
+    }
+
+    // Check for role pre-selection
     const roleParam = searchParams.get("role");
     if (roleParam) {
       const normalized = roleParam.replace(/-/g, " ");
@@ -218,6 +253,8 @@ export function WizardShell() {
             roles={listRoles()}
             selectedRole={selectedRole}
             onSelect={handleRoleSelect}
+            importedFromExtension={importedFromExtension}
+            profileName={profile.name}
           />
         )}
         {step === 2 && targetRole && (
