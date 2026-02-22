@@ -73,6 +73,24 @@ export interface AnalysisReport {
   top_recommendations: string[];
 }
 
+// ---------------------------------------------------------------------------
+// AI Generation types
+// ---------------------------------------------------------------------------
+
+export interface GenerationContext {
+  resumeText: string;
+  notes: string;
+}
+
+export interface GeneratedDraft {
+  headline: string;
+  about: string;
+  skills: string[];
+  experience_suggestions: string;
+}
+
+export type GenerationSection = keyof GeneratedDraft;
+
 export const EMPTY_PROFILE: LinkedInProfile = {
   name: "",
   headline: "",

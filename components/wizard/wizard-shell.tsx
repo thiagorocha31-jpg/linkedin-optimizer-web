@@ -7,60 +7,31 @@ import { analyzeProfile } from "@/lib/analyzer";
 import { getRole, listRoles } from "@/lib/roles";
 import type {
   AnalysisReport,
+  GeneratedDraft,
+  GenerationContext,
   LinkedInProfile,
   TargetRole,
 } from "@/lib/types";
 import { EMPTY_PROFILE } from "@/lib/types";
 import { StepRole } from "./step-role";
-import { StepProfile } from "./step-profile";
+import { StepContext } from "./step-context";
+import { StepReview } from "./step-review";
 import { StepScore } from "./step-score";
 import { StepRecommendations } from "./step-recommendations";
 
 const STEPS = [
   { label: "Pick Role", num: 1 },
-  { label: "Your Profile", num: 2 },
-  { label: "Your Score", num: 3 },
-  { label: "Fix It", num: 4 },
+  { label: "Your Context", num: 2 },
+  { label: "AI Draft", num: 3 },
+  { label: "Your Score", num: 4 },
+  { label: "Fix It", num: 5 },
 ];
 
 const STORAGE_KEY = "linkedin-optimizer-profile";
 const SNAPSHOT_KEY = "linkedin-optimizer-snapshot";
 
-// ---------------------------------------------------------------------------
-// Capture extension data IMMEDIATELY on module load, before React renders.
-// The URL hash (#data=...) is only available on the first page load.
-// If we wait for useEffect, Suspense re-renders may lose it.
-// ---------------------------------------------------------------------------
-let _extensionData: LinkedInProfile | null = null;
-let _hadExtensionImport = false;
-
-if (typeof window !== "undefined") {
-  try {
-    const hash = window.location.hash;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("import") === "extension" && hash.startsWith("#data=")) {
-      const encoded = hash.slice(6);
-      const json = decodeURIComponent(escape(atob(encoded)));
-      const data = JSON.parse(json);
-      _extensionData = { ...EMPTY_PROFILE, ...data };
-      _hadExtensionImport = true;
-      // Clean the URL immediately
-      history.replaceState(null, "", window.location.pathname);
-    }
-  } catch (e) {
-    console.error("[LinkedIn Optimizer] Failed to decode extension data:", e);
-  }
-}
-
 function loadProfile(): LinkedInProfile {
   if (typeof window === "undefined") return { ...EMPTY_PROFILE };
-
-  // Extension data takes priority (captured at module load)
-  if (_extensionData) {
-    const data = _extensionData;
-    _extensionData = null; // Consume it so refreshes don't re-use
-    return data;
-  }
 
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -81,19 +52,47 @@ export function WizardShell() {
   const [profile, setProfile] = useState<LinkedInProfile>(loadProfile);
   const [selectedRole, setSelectedRole] = useState<string>("");
   const [snapshot, setSnapshot] = useState<AnalysisReport | null>(null);
-  const [importedFromExtension] = useState(_hadExtensionImport);
+  const [importedFromExtension, setImportedFromExtension] = useState(false);
   const initRef = useRef(false);
+
+  // AI generation state
+  const [generationContext, setGenerationContext] = useState<GenerationContext>({
+    resumeText: "",
+    notes: "",
+  });
+  const [generatedDraft, setGeneratedDraft] = useState<GeneratedDraft | null>(null);
+
+  // Listen for postMessage from the Chrome extension
+  useEffect(() => {
+    const isExtensionImport = searchParams.get("import") === "extension";
+    if (!isExtensionImport) return;
+
+    function handleMessage(event: MessageEvent) {
+      if (
+        event.data &&
+        event.data.type === "linkedin-optimizer-import" &&
+        event.data.profile
+      ) {
+        console.log("[LinkedIn Optimizer] Received profile via postMessage:", event.data.profile);
+        const imported = { ...EMPTY_PROFILE, ...event.data.profile };
+        setProfile(imported);
+        setImportedFromExtension(true);
+        saveProfile(imported);
+        // Clean the URL
+        history.replaceState(null, "", window.location.pathname);
+        // Remove listener after successful import
+        window.removeEventListener("message", handleMessage);
+      }
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [searchParams]);
 
   // URL param: ?role=pe-operating-partner (non-extension case)
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
-
-    // Skip if we already handled extension import at module level
-    if (_hadExtensionImport) {
-      _hadExtensionImport = false; // Reset for any future re-mounts
-      return;
-    }
 
     const roleParam = searchParams.get("role");
     if (roleParam) {
@@ -136,6 +135,21 @@ export function WizardShell() {
     []
   );
 
+  // Apply AI-generated draft to profile
+  const applyDraft = useCallback(
+    (draft: Partial<GeneratedDraft>) => {
+      setProfile((prev) => {
+        const updates: Partial<LinkedInProfile> = {};
+        if (draft.headline !== undefined) updates.headline = draft.headline;
+        if (draft.about !== undefined) updates.about = draft.about;
+        if (draft.skills !== undefined) updates.skills = draft.skills;
+        // experience_suggestions is text advice, not directly applied
+        return { ...prev, ...updates };
+      });
+    },
+    []
+  );
+
   const handleRoleSelect = useCallback((roleName: string) => {
     setSelectedRole(roleName);
     setStep(2);
@@ -155,11 +169,18 @@ export function WizardShell() {
     localStorage.removeItem(SNAPSHOT_KEY);
   }, []);
 
+  // Check if profile has meaningful content (for "existing profile" indicator)
+  const hasExistingProfile =
+    profile.headline.length > 0 ||
+    profile.about.length > 0 ||
+    profile.experience.length > 0 ||
+    profile.skills.length > 0;
+
   const goTo = useCallback(
     (s: number) => {
-      if (s === 1 || (s >= 2 && selectedRole) || (s >= 3 && report)) {
-        setStep(s);
-      }
+      if (s === 1) setStep(1);
+      else if (s >= 2 && s <= 3 && selectedRole) setStep(s);
+      else if (s >= 4 && report) setStep(s);
     },
     [selectedRole, report]
   );
@@ -187,15 +208,15 @@ export function WizardShell() {
               const isCompleted = step > s.num;
               const isClickable =
                 s.num === 1 ||
-                (s.num === 2 && !!selectedRole) ||
-                (s.num >= 3 && !!report);
+                (s.num >= 2 && s.num <= 3 && !!selectedRole) ||
+                (s.num >= 4 && !!report);
 
               return (
                 <div key={s.num} className="flex items-center gap-2">
                   {i > 0 && (
                     <div
                       className={cn(
-                        "h-px w-6 sm:w-10",
+                        "h-px w-4 sm:w-8",
                         isCompleted ? "bg-primary" : "bg-border"
                       )}
                     />
@@ -204,7 +225,7 @@ export function WizardShell() {
                     onClick={() => isClickable && goTo(s.num)}
                     disabled={!isClickable}
                     className={cn(
-                      "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                      "flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm font-medium transition-colors",
                       isActive &&
                         "bg-primary text-primary-foreground",
                       isCompleted &&
@@ -264,29 +285,42 @@ export function WizardShell() {
             profileName={profile.name}
           />
         )}
-        {step === 2 && targetRole && (
-          <StepProfile
-            profile={profile}
-            targetRole={targetRole}
-            report={report}
-            onChange={updateProfile}
+        {step === 2 && selectedRole && (
+          <StepContext
+            context={generationContext}
+            onChange={setGenerationContext}
             onNext={() => setStep(3)}
+            onSkip={() => setStep(4)}
+            onBack={() => setStep(1)}
+            hasExistingProfile={hasExistingProfile}
           />
         )}
-        {step === 3 && report && (
-          <StepScore
-            report={report}
-            snapshot={snapshot}
-            onSaveSnapshot={handleSaveSnapshot}
-            onClearSnapshot={handleClearSnapshot}
+        {step === 3 && selectedRole && (
+          <StepReview
+            role={selectedRole}
+            context={generationContext}
+            currentProfile={profile}
+            existingDraft={generatedDraft}
+            onDraftChange={setGeneratedDraft}
+            onApplyDraft={applyDraft}
             onNext={() => setStep(4)}
             onBack={() => setStep(2)}
           />
         )}
         {step === 4 && report && (
+          <StepScore
+            report={report}
+            snapshot={snapshot}
+            onSaveSnapshot={handleSaveSnapshot}
+            onClearSnapshot={handleClearSnapshot}
+            onNext={() => setStep(5)}
+            onBack={() => setStep(3)}
+          />
+        )}
+        {step === 5 && report && (
           <StepRecommendations
             report={report}
-            onBack={() => setStep(2)}
+            onBack={() => setStep(4)}
           />
         )}
       </main>
