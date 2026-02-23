@@ -126,7 +126,7 @@ export function StepContext({
             type="file"
             accept=".pdf,application/pdf"
             onChange={handleInputChange}
-            className="hidden"
+            className="absolute h-0 w-0 overflow-hidden opacity-0"
           />
 
           {context.resumeText ? (
