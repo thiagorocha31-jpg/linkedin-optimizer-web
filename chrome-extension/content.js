@@ -1,13 +1,13 @@
 /**
- * LinkedIn Profile Optimizer - Content Script
+ * LinkedIn Profile Optimizer - Content Script (v2)
  *
- * Scrapes a LinkedIn profile page and sends structured data to the optimizer web app.
- * Uses multiple selector strategies with fallbacks for resilience against DOM changes.
+ * Scrapes a LinkedIn profile page and sends structured data to the optimizer.
+ * Uses heading-based section discovery + text parsing (resilient to DOM changes).
  *
  * Runs on: https://www.linkedin.com/in/*
  */
 
-const OPTIMIZER_URL = "https://linkedin-optimizer-web.vercel.app";
+var OPTIMIZER_URL = "https://linkedin-optimizer-web.vercel.app";
 
 // ---------------------------------------------------------------------------
 // Inject floating action button
@@ -16,11 +16,10 @@ const OPTIMIZER_URL = "https://linkedin-optimizer-web.vercel.app";
 function injectButton() {
   if (document.getElementById("li-optimizer-btn")) return;
 
-  const btn = document.createElement("button");
+  var btn = document.createElement("button");
   btn.id = "li-optimizer-btn";
 
-  // Build button content safely using DOM APIs
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("width", "20");
   svg.setAttribute("height", "20");
   svg.setAttribute("viewBox", "0 0 24 24");
@@ -30,17 +29,17 @@ function injectButton() {
   svg.setAttribute("stroke-linecap", "round");
   svg.setAttribute("stroke-linejoin", "round");
 
-  const path1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  var path1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
   path1.setAttribute("d", "M12 20V10");
-  const path2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  var path2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
   path2.setAttribute("d", "M18 20V4");
-  const path3 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  var path3 = document.createElementNS("http://www.w3.org/2000/svg", "path");
   path3.setAttribute("d", "M6 20v-4");
   svg.appendChild(path1);
   svg.appendChild(path2);
   svg.appendChild(path3);
 
-  const span = document.createElement("span");
+  var span = document.createElement("span");
   span.textContent = "Analyze Profile";
 
   btn.appendChild(svg);
@@ -54,100 +53,78 @@ function injectButton() {
 // ---------------------------------------------------------------------------
 
 async function handleAnalyze() {
-  const btn = document.getElementById("li-optimizer-btn");
+  var btn = document.getElementById("li-optimizer-btn");
   if (btn) {
     btn.classList.add("li-optimizer-loading");
-    const span = btn.querySelector("span");
+    var span = btn.querySelector("span");
     if (span) span.textContent = "Scraping...";
   }
 
   try {
-    // First, expand all "see more" sections so we capture full text
-    await expandAllSections();
+    // Scroll through the page to load lazy sections
+    await loadAllSections();
 
-    // Small delay to let DOM settle after expansions
-    await sleep(500);
+    var profile = scrapeProfile();
 
-    const profile = scrapeProfile();
-
-    // Log scraped data for debugging
-    console.log("[LinkedIn Optimizer] Scraped profile:", profile);
+    console.log("[LinkedIn Optimizer] Scraped profile:", JSON.stringify(profile, null, 2));
     console.log("[LinkedIn Optimizer] Name:", profile.name);
     console.log("[LinkedIn Optimizer] Headline:", profile.headline);
-    console.log("[LinkedIn Optimizer] About length:", profile.about.length);
     console.log("[LinkedIn Optimizer] Experience:", profile.experience.length, "entries");
     console.log("[LinkedIn Optimizer] Skills:", profile.skills.length, "skills");
+    console.log("[LinkedIn Optimizer] Education:", profile.education.length, "entries");
 
-    // Encode as base64 in URL fragment (never sent to server)
-    var json = JSON.stringify(profile);
-    var encoded = btoa(unescape(encodeURIComponent(json)));
-    var url = OPTIMIZER_URL + "?import=extension#data=" + encoded;
-
-    console.log("[LinkedIn Optimizer] URL length:", url.length);
-    window.open(url, "_blank");
+    // Save to chrome.storage.local, then open optimizer
+    chrome.storage.local.set({ "li-optimizer-profile": profile }, function () {
+      console.log("[LinkedIn Optimizer] Profile saved to chrome.storage.local");
+      window.open(OPTIMIZER_URL + "?import=extension", "_blank");
+    });
 
     if (btn) {
       btn.classList.remove("li-optimizer-loading");
-      const span = btn.querySelector("span");
-      if (span) span.textContent = "Analyze Profile";
+      var span2 = btn.querySelector("span");
+      if (span2) span2.textContent = "Analyze Profile";
     }
   } catch (err) {
     console.error("[LinkedIn Optimizer] Scrape failed:", err);
     if (btn) {
       btn.classList.remove("li-optimizer-loading");
-      const span = btn.querySelector("span");
-      if (span) span.textContent = "Error - Retry";
+      var span3 = btn.querySelector("span");
+      if (span3) span3.textContent = "Error - Retry";
     }
     alert(
       "LinkedIn Optimizer: Failed to scrape profile.\n\n" +
-        "LinkedIn may have changed their page structure. " +
-        "Please report this issue.\n\n" +
-        "Error: " +
-        err.message
+        "Error: " + err.message
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Section expanders - click all "see more" / "show all" buttons
+// Scroll to load lazy sections
 // ---------------------------------------------------------------------------
 
-async function expandAllSections() {
-  // Expand the About section "see more"
-  const aboutMore = findElement([
-    '#about ~ .display-flex button[aria-expanded="false"]',
-    '#about + div + div button.inline-show-more-text__button',
-    'section:has(#about) button.inline-show-more-text__button',
-    '#about ~ div button.inline-show-more-text__button',
-  ]);
-  if (aboutMore) {
-    aboutMore.click();
-    await sleep(300);
+async function loadAllSections() {
+  var scrollPositions = [1000, 3000, 5000, 8000, 12000];
+  for (var i = 0; i < scrollPositions.length; i++) {
+    window.scrollTo({ top: scrollPositions[i], behavior: "instant" });
+    await sleep(400);
   }
+  // Back to top
+  window.scrollTo({ top: 0, behavior: "instant" });
+  await sleep(300);
+}
 
-  // Expand experience descriptions
-  const expMoreButtons = document.querySelectorAll(
-    '#experience ~ div button.inline-show-more-text__button, ' +
-    'section:has(#experience) button.inline-show-more-text__button'
-  );
-  for (const expandBtn of expMoreButtons) {
-    expandBtn.click();
-    await sleep(100);
-  }
+// ---------------------------------------------------------------------------
+// Section finder - LinkedIn 2025 uses H2 headings, no IDs
+// ---------------------------------------------------------------------------
 
-  // Scroll down to load lazy sections (skills, education)
-  const sections = ["#skills", "#education", "#recommendations"];
-  for (const sel of sections) {
-    const el = document.querySelector(sel);
-    if (el) {
-      el.scrollIntoView({ behavior: "instant", block: "center" });
-      await sleep(300);
+function findSectionByHeading(heading) {
+  var h2s = document.querySelectorAll("h2");
+  for (var i = 0; i < h2s.length; i++) {
+    if (h2s[i].textContent.trim() === heading) {
+      return h2s[i].closest("section");
     }
   }
-
-  // Scroll back to top
-  window.scrollTo({ top: 0, behavior: "instant" });
-  await sleep(200);
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,9 +132,10 @@ async function expandAllSections() {
 // ---------------------------------------------------------------------------
 
 function scrapeProfile() {
+  var nameAndHeadline = scrapeNameAndHeadline();
   return {
-    name: scrapeName(),
-    headline: scrapeHeadline(),
+    name: nameAndHeadline.name,
+    headline: nameAndHeadline.headline,
     about: scrapeAbout(),
     experience: scrapeExperience(),
     skills: scrapeSkills(),
@@ -171,366 +149,340 @@ function scrapeProfile() {
     has_custom_url: scrapeHasCustomUrl(),
     has_verification: scrapeHasVerification(),
     open_to_work: scrapeOpenToWork(),
-    open_to_work_private: false, // Not detectable from public view
-    posts_per_month: 0, // Would require Activity tab scrape
-    comments_per_week: 0, // Would require Activity tab scrape
+    open_to_work_private: false,
+    posts_per_month: 0,
+    comments_per_week: 0,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Individual field scrapers
+// Name + Headline from the profile card section
 // ---------------------------------------------------------------------------
 
-function scrapeName() {
-  const el = findElement([
-    "h1.text-heading-xlarge",
-    ".pv-top-card--list h1",
-    "main section:first-child h1",
-    "h1",
-  ]);
-  return el ? el.textContent.trim() : "";
+function scrapeNameAndHeadline() {
+  var result = { name: "", headline: "" };
+
+  // The profile card is in main, look for the first section with
+  // an h2 that looks like a person's name
+  var sections = document.querySelectorAll("main section");
+  for (var i = 0; i < sections.length; i++) {
+    var h2 = sections[i].querySelector("h2");
+    if (!h2) continue;
+    var text = h2.textContent.trim();
+    // Skip known section headings
+    if (/^(Activity|Experience|Education|Skills|Licenses|Recommendations|Languages|Interests|Featured|About|People|Explore|More|Sales|Ad\s)/.test(text)) continue;
+    if (/notifications$/i.test(text)) continue;
+    // Skip headings that are clearly not names
+    if (text.length < 3 || /^\d/.test(text)) continue;
+
+    result.name = text;
+
+    // Headline is in a <p> tag
+    var paragraphs = sections[i].querySelectorAll("p");
+    for (var j = 0; j < paragraphs.length; j++) {
+      var pText = paragraphs[j].textContent.trim();
+      if (pText.length < 5) continue;
+      if (/^(He\/Him|She\/Her|They\/Them)/i.test(pText)) continue;
+      if (/connections|followers|mutual/i.test(pText)) continue;
+      if (/Contact info/i.test(pText)) continue;
+      if (/^\u00B7\s*(1st|2nd|3rd)/i.test(pText)) continue; // Skip connection degree
+      if (/^(1st|2nd|3rd)$/i.test(pText)) continue;
+      result.headline = pText;
+      break;
+    }
+    break;
+  }
+
+  return result;
 }
 
-function scrapeHeadline() {
-  const el = findElement([
-    ".text-body-medium.break-words",
-    ".pv-top-card--list .text-body-medium",
-    "main section:first-child .text-body-medium",
-    "h1 + .text-body-medium",
-  ]);
-  return el ? el.textContent.trim() : "";
-}
+// ---------------------------------------------------------------------------
+// About section
+// ---------------------------------------------------------------------------
 
 function scrapeAbout() {
-  // Strategy 1: Find the #about section and get text from sibling containers
-  const aboutSection = document.querySelector("#about");
-  if (aboutSection) {
-    // The text is typically in a span within the section that contains #about
-    const section = aboutSection.closest("section");
-    if (section) {
-      const textEl = findElement(
-        [
-          '.inline-show-more-text span[aria-hidden="true"]',
-          ".inline-show-more-text span.visually-hidden + span",
-          ".inline-show-more-text",
-          'div.display-flex span[aria-hidden="true"]',
-          "span.visually-hidden + span",
-        ],
-        section
-      );
+  var section = findSectionByHeading("About");
+  if (!section) return "";
 
-      if (textEl) return textEl.textContent.trim();
-
-      // Fallback: get all visible text in the section minus the heading
-      const allText = section.textContent.trim();
-      const heading = section.querySelector("h2, .pvs-header__title");
-      const headingText = heading ? heading.textContent.trim() : "About";
-      return allText.replace(headingText, "").trim();
-    }
-  }
-  return "";
+  var text = section.textContent.trim();
+  text = text.replace(/^About\s*/, "");
+  text = text.replace(/\s*(\.\.\.see more|see less|Show less|Show more)$/i, "");
+  return text.trim();
 }
+
+// ---------------------------------------------------------------------------
+// Experience - parse from section text using date patterns
+// ---------------------------------------------------------------------------
 
 function scrapeExperience() {
-  const entries = [];
-  const expSection = document.querySelector("#experience");
-  if (!expSection) return entries;
+  var section = findSectionByHeading("Experience");
+  if (!section) return [];
 
-  const section = expSection.closest("section");
-  if (!section) return entries;
+  var text = section.textContent.trim();
+  text = text.replace(/^Experience\s*/, "");
+  text = text.replace(/\s*Show all\s*\d*\s*experiences?\s*$/i, "");
 
-  // LinkedIn has two experience layouts:
-  // 1. Single role per company: li > div with title, company, duration, description
-  // 2. Multiple roles per company: li > div with company header, then nested roles
+  // Split on date patterns: "Mon YYYY - Mon YYYY · Duration" or "Mon YYYY - Present · Duration"
+  var monthNames = "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec";
+  var dateRangeRegex = new RegExp(
+    "(" + monthNames + ")\\s+(\\d{4})\\s*[-\\u2013]\\s*((?:" + monthNames + ")\\s+\\d{4}|Present)\\s*\\u00B7?\\s*(\\d+\\s*(?:yr|mo|year|month)s?(?:\\s+\\d+\\s*(?:yr|mo|year|month)s?)?)?",
+    "gi"
+  );
 
-  const items = section.querySelectorAll(":scope > div > div > div > ul > li");
+  var entries = [];
+  var matches = [];
+  var match;
 
-  for (const item of items) {
-    // Check if this is a grouped company (multiple roles)
-    const nestedRoles = item.querySelectorAll(
-      ":scope > div > div > div > ul > li"
-    );
+  while ((match = dateRangeRegex.exec(text)) !== null) {
+    matches.push({
+      index: match.index,
+      length: match[0].length,
+      dateStr: match[0],
+      isCurrent: /present/i.test(match[3]),
+    });
+  }
 
-    if (nestedRoles.length > 0) {
-      // Grouped: extract company name from the parent, then each role
-      const companyEl = item.querySelector(
-        'a > div > div > div > div > span[aria-hidden="true"], ' +
-          'div > div > div > a > div > span[aria-hidden="true"]'
-      );
-      const company = companyEl ? companyEl.textContent.trim() : "";
+  for (var i = 0; i < matches.length; i++) {
+    var m = matches[i];
+    var startIdx = i > 0 ? matches[i - 1].index + matches[i - 1].length : 0;
+    var beforeText = text.substring(startIdx, m.index).trim();
 
-      for (const role of nestedRoles) {
-        entries.push(parseExperienceItem(role, company));
-      }
-    } else {
-      // Single role
-      entries.push(parseExperienceItem(item));
+    // The text between two date ranges = [prev location] + [curr title+company]
+    // Remove leading location (city, state, country at start of text)
+    beforeText = beforeText.replace(/^[\w\s,.-]+(?:United States|Canada|United Kingdom|Australia|India|Germany|France|Brazil|Netherlands|Massachusetts|Illinois|California|New York|Texas|Virginia|Washington|Georgia|Oregon|Florida|Ohio|Colorado|Connecticut|Arizona|Pennsylvania)\s*/i, "");
+
+    // Remove employment type
+    beforeText = beforeText.replace(/\s*\u00B7\s*(Full-time|Part-time|Contract|Freelance|Internship|Self-employed|Seasonal).*$/i, "").trim();
+
+    // Remove trailing duration like "2 yrs 8 mos"
+    beforeText = beforeText.replace(/\s*\d+\s*(?:yr|mo|year|month)s?(?:\s+\d+\s*(?:yr|mo|year|month)s?)?\s*$/i, "").trim();
+
+    var durationMonths = parseDurationMonths(m.dateStr);
+
+    // Try splitting title from company
+    var titleCompany = splitTitleCompany(beforeText);
+
+    if (titleCompany.title || titleCompany.company) {
+      entries.push({
+        title: titleCompany.title,
+        company: titleCompany.company,
+        duration_months: durationMonths,
+        description: "",
+        is_current: m.isCurrent,
+      });
     }
   }
 
-  return entries.filter(function (e) {
-    return e.title || e.company;
-  });
+  return entries;
 }
 
-function parseExperienceItem(el, parentCompany) {
-  // Get all visible text spans (LinkedIn uses aria-hidden="true" for the visible version)
-  const visibleSpans = el.querySelectorAll('span[aria-hidden="true"]');
-  const texts = Array.from(visibleSpans).map(function (s) {
-    return s.textContent.trim();
-  });
+function splitTitleCompany(text) {
+  if (!text) return { title: "", company: "" };
 
-  // Typical order: [title, company/type, date range, location, description...]
-  // For nested roles: [title, date range, location, description...]
-  var title = "";
-  var company = parentCompany || "";
-  var durationText = "";
-  var description = "";
+  // If text is very short, it's probably just a title (nested role)
+  if (text.length < 5) return { title: text, company: "" };
 
-  if (parentCompany) {
-    // Nested role: title is first, then dates
-    title = texts[0] || "";
-    durationText = texts[1] || "";
-  } else {
-    title = texts[0] || "";
-    company = texts[1] || "";
-    durationText = texts[2] || "";
+  // Try to detect where a company name starts by looking for patterns:
+  // "Title at Company" or "TitleCompany" where Company starts with capital
+  // Common: "ManagerBain & Company" or "Director of Product Development - SkincareSharkNinja"
+
+  // Strategy: Look for the last occurrence of a transition from lowercase to uppercase
+  // that could indicate a company name boundary
+  var bestSplit = -1;
+
+  for (var i = 1; i < text.length - 1; i++) {
+    var prev = text[i - 1];
+    var curr = text[i];
+    // Transition from lowercase letter to uppercase letter (word boundary without space)
+    if (/[a-z]/.test(prev) && /[A-Z]/.test(curr)) {
+      // Check that what follows looks like a company name (at least 3 chars)
+      var remaining = text.substring(i);
+      if (remaining.length >= 3) {
+        bestSplit = i;
+        // Keep going to find the LAST such boundary that still leaves a reasonable company name
+        // Actually, we want the one that produces the best-looking split
+        // Heuristic: prefer splits where the company part is a known pattern
+        break; // Take the first one - usually title comes first, then company
+      }
+    }
   }
 
-  // Try to find description in a show-more or plain text area
-  var descEl = el.querySelector(
-    '.inline-show-more-text span[aria-hidden="true"], ' +
-      ".pvs-list__outer-container .inline-show-more-text, " +
-      "ul .inline-show-more-text"
-  );
-  if (descEl) {
-    description = descEl.textContent.trim();
+  if (bestSplit > 0) {
+    return {
+      title: text.substring(0, bestSplit).trim(),
+      company: text.substring(bestSplit).trim(),
+    };
   }
 
-  // Parse duration from text like "Jan 2024 - Present · 1 yr 6 mos"
-  var durationMonths = parseDurationMonths(durationText);
-  var captionEl = el.querySelector(".pvs-entity__caption-wrapper");
-  var isCurrent =
-    durationText.toLowerCase().indexOf("present") !== -1 ||
-    (captionEl &&
-      captionEl.textContent.toLowerCase().indexOf("present") !== -1) ||
-    false;
-
-  // Clean company - remove employment type suffix
-  company = company
-    .replace(
-      /\s*·\s*(Full-time|Part-time|Contract|Freelance|Internship|Self-employed).*$/i,
-      ""
-    )
-    .trim();
-
-  return {
-    title: title,
-    company: company,
-    duration_months: durationMonths,
-    description: description,
-    is_current: isCurrent,
-  };
+  return { title: text, company: "" };
 }
+
+// ---------------------------------------------------------------------------
+// Skills - parse from text, split on "Endorse"
+// ---------------------------------------------------------------------------
 
 function scrapeSkills() {
+  var section = findSectionByHeading("Skills");
+  if (!section) return [];
+
+  var text = section.textContent.trim();
+  text = text.replace(/^Skills\s*/, "");
+  text = text.replace(/\s*Show all.*$/i, "");
+
+  // Skills text: "Product MarketingEndorseProduct ManagementEndorse"
+  var parts = text.split(/Endorse/);
   var skills = [];
-  var skillsSection = document.querySelector("#skills");
-  if (!skillsSection) return skills;
-
-  var section = skillsSection.closest("section");
-  if (!section) return skills;
-
-  // Skills are in list items with the skill name in a visible span
-  var items = section.querySelectorAll("li");
-  for (var i = 0; i < items.length; i++) {
-    var nameEl = items[i].querySelector(
-      'div > div > div > div > a > div > div > div > span[aria-hidden="true"], ' +
-        'span[aria-hidden="true"]'
-    );
-    if (nameEl) {
-      var name = nameEl.textContent.trim();
-      if (name && skills.indexOf(name) === -1 && name.length < 100) {
-        skills.push(name);
-      }
+  for (var i = 0; i < parts.length; i++) {
+    var skill = parts[i].trim();
+    if (skill && skill.length > 1 && skill.length < 80) {
+      skills.push(skill);
     }
   }
 
   return skills;
 }
 
+// ---------------------------------------------------------------------------
+// Education - parse from section text
+// ---------------------------------------------------------------------------
+
 function scrapeEducation() {
-  var education = [];
-  var eduSection = document.querySelector("#education");
-  if (!eduSection) return education;
+  var section = findSectionByHeading("Education");
+  if (!section) return [];
 
-  var section = eduSection.closest("section");
-  if (!section) return education;
+  var text = section.textContent.trim();
+  text = text.replace(/^Education\s*/, "");
+  text = text.replace(/\s*Show all.*$/i, "");
 
-  var items = section.querySelectorAll(":scope > div > div > div > ul > li");
-  for (var i = 0; i < items.length; i++) {
-    var spans = items[i].querySelectorAll('span[aria-hidden="true"]');
-    var texts = Array.from(spans).map(function (s) {
-      return s.textContent.trim();
-    });
-    // Typically: [school name, degree/field, dates]
-    if (texts.length > 0) {
-      var parts = texts.slice(0, 2).filter(Boolean);
-      education.push(parts.join(", "));
+  // Split on year ranges: "YYYY - YYYY" or "YYYY \u2013 YYYY"
+  var parts = text.split(/(\d{4}\s*[\u2013\-]\s*\d{4})/);
+  var entries = [];
+
+  for (var i = 0; i < parts.length; i += 2) {
+    var entry = parts[i].trim();
+    if (entry && entry.length > 3) {
+      var years = parts[i + 1] ? parts[i + 1].trim() : "";
+      entries.push(entry + (years ? ", " + years : ""));
     }
   }
 
-  return education;
+  return entries;
 }
+
+// ---------------------------------------------------------------------------
+// Featured count
+// ---------------------------------------------------------------------------
 
 function scrapeFeaturedCount() {
-  var featuredSection = document.querySelector("#featured");
-  if (!featuredSection) return 0;
-
-  var section = featuredSection.closest("section");
+  var section = findSectionByHeading("Featured");
   if (!section) return 0;
-
-  var items = section.querySelectorAll("li");
+  var items = section.querySelectorAll("li, article");
   return items.length;
 }
+
+// ---------------------------------------------------------------------------
+// Recommendations count
+// ---------------------------------------------------------------------------
 
 function scrapeRecommendationsCount() {
-  var recSection = document.querySelector("#recommendations");
-  if (!recSection) return 0;
-
-  var section = recSection.closest("section");
+  var section = findSectionByHeading("Recommendations");
   if (!section) return 0;
 
-  // Look for tab button text like "Received (5)"
-  var tabs = section.querySelectorAll('button[role="tab"]');
-  for (var i = 0; i < tabs.length; i++) {
-    var text = tabs[i].textContent.trim();
-    var match = text.match(/Received\s*\((\d+)\)/i);
-    if (match) return parseInt(match[1], 10);
-  }
-
-  // Fallback: count visible recommendation items
-  var items = section.querySelectorAll("li");
-  return items.length;
-}
-
-function scrapeConnectionsCount() {
-  // Look for "XXX connections" or "500+ connections" text
-  var el = findElement([
-    'a[href*="/connections"] span',
-    ".pv-top-card--list-bullet a span",
-    "span.t-bold",
-  ]);
-
-  if (el) {
-    var text = el.textContent.trim();
-    var match = text.match(/(\d[\d,]*)\+?\s*(connections|followers)?/i);
-    if (match) {
-      var num = parseInt(match[1].replace(/,/g, ""), 10);
-      return isNaN(num) ? 0 : num;
-    }
-  }
-
-  // Broader search for connection count anywhere in top card
-  var topCard = document.querySelector("main section:first-child");
-  if (topCard) {
-    var allText = topCard.textContent;
-    var broadMatch = allText.match(/(\d[\d,]*)\+?\s*connections/i);
-    if (broadMatch) {
-      return parseInt(broadMatch[1].replace(/,/g, ""), 10);
-    }
-  }
+  var text = section.textContent;
+  var match = text.match(/Received\s*\((\d+)\)/i);
+  if (match) return parseInt(match[1], 10);
 
   return 0;
 }
 
-function scrapeHasPhoto() {
-  var photo = findElement([
-    "img.pv-top-card-profile-picture__image",
-    'main section:first-child img[src*="profile-displayphoto"]',
-    "main section:first-child img.evi-image",
-    'img[alt*="photo"]',
-  ]);
-  return !!photo;
+// ---------------------------------------------------------------------------
+// Connections/followers count
+// ---------------------------------------------------------------------------
+
+function scrapeConnectionsCount() {
+  var main = document.querySelector("main");
+  if (!main) return 0;
+
+  var paragraphs = main.querySelectorAll("p");
+  for (var i = 0; i < paragraphs.length; i++) {
+    var text = paragraphs[i].textContent.trim();
+    var match = text.match(/^(\d[\d,]*)\+?\s*(connections|followers)/i);
+    if (match) {
+      return parseInt(match[1].replace(/,/g, ""), 10);
+    }
+  }
+
+  var allText = main.textContent;
+  var broadMatch = allText.match(/(\d[\d,]*)\+?\s*connections/i);
+  if (broadMatch) return parseInt(broadMatch[1].replace(/,/g, ""), 10);
+
+  var followerMatch = allText.match(/(\d[\d,]*)\s*followers/i);
+  if (followerMatch) return parseInt(followerMatch[1].replace(/,/g, ""), 10);
+
+  return 0;
 }
+
+// ---------------------------------------------------------------------------
+// Profile photo
+// ---------------------------------------------------------------------------
+
+function scrapeHasPhoto() {
+  var photoBtn = document.querySelector('button[aria-label*="Profile photo"], button[aria-label*="profile photo"]');
+  if (photoBtn) return true;
+  var imgs = document.querySelectorAll("main img");
+  for (var i = 0; i < imgs.length; i++) {
+    var src = imgs[i].src || "";
+    if (/profile-displayphoto/i.test(src)) return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Banner image
+// ---------------------------------------------------------------------------
 
 function scrapeHasBanner() {
-  var banner = findElement([
-    ".profile-background-image img",
-    "main section:first-child .live-video-hero-image img",
-    'img[class*="banner"]',
-    ".profile-topcard-background-image img",
-  ]);
-  // Also check for background-image CSS
-  var topSection = document.querySelector(
-    ".profile-background-image, .live-video-hero-image"
-  );
-  if (topSection) {
-    var bg = window.getComputedStyle(topSection).backgroundImage;
-    if (bg && bg !== "none") return true;
-  }
-  return !!banner;
+  var coverBtn = document.querySelector('button[aria-label*="Cover photo"], button[aria-label*="cover photo"]');
+  return !!coverBtn;
 }
+
+// ---------------------------------------------------------------------------
+// Custom URL
+// ---------------------------------------------------------------------------
 
 function scrapeHasCustomUrl() {
-  // Custom URLs look like linkedin.com/in/thiagorocha
-  // Default URLs look like linkedin.com/in/thiago-rocha-a1b2c3d4
   var path = window.location.pathname.replace(/\/$/, "");
   var slug = path.split("/").pop() || "";
-  // Default URLs have a hex suffix after a dash
-  var isDefault = /^.+-[a-f0-9]{6,}$/i.test(slug);
-  return !isDefault;
+  return !/^.+-[a-f0-9]{6,}$/i.test(slug);
 }
+
+// ---------------------------------------------------------------------------
+// Verification badge
+// ---------------------------------------------------------------------------
 
 function scrapeHasVerification() {
-  var badge = findElement([
-    'svg[data-test-icon="verified-medium"]',
-    ".pv-top-card__verification-badge",
-    '[aria-label*="verified"]',
-    '[aria-label*="Verified"]',
-    'li-icon[type="verified"]',
-  ]);
-  return !!badge;
+  var main = document.querySelector("main");
+  if (!main) return false;
+  return main.querySelectorAll('[aria-label*="verified"], [aria-label*="Verified"]').length > 0;
 }
 
+// ---------------------------------------------------------------------------
+// Open to Work
+// ---------------------------------------------------------------------------
+
 function scrapeOpenToWork() {
-  // Look for the green "Open to work" frame/badge
-  var badge = findElement([
-    "span.pv-open-to-carousel-card",
-    '[aria-label*="Open to work"]',
-    'div[class*="open-to-work"]',
-    'img[alt*="Open to work"]',
-  ]);
-
-  // Also check for text content
-  var topCard = document.querySelector("main section:first-child");
-  if (topCard && topCard.textContent.indexOf("Open to work") !== -1)
-    return true;
-
-  return !!badge;
+  var main = document.querySelector("main");
+  if (!main) return false;
+  return /Open to work/i.test(main.textContent);
 }
 
 // ---------------------------------------------------------------------------
 // Utility helpers
 // ---------------------------------------------------------------------------
 
-function findElement(selectors, root) {
-  var parent = root || document;
-  for (var i = 0; i < selectors.length; i++) {
-    try {
-      var el = parent.querySelector(selectors[i]);
-      if (el) return el;
-    } catch (e) {
-      // Invalid selector, skip
-    }
-  }
-  return null;
-}
-
 function parseDurationMonths(text) {
   if (!text) return 0;
 
-  // Match patterns like "1 yr 6 mos", "2 yrs", "8 mos", "1 yr"
   var yrMatch = text.match(/(\d+)\s*yr/i);
   var moMatch = text.match(/(\d+)\s*mo/i);
 
@@ -538,7 +490,6 @@ function parseDurationMonths(text) {
   if (yrMatch) months += parseInt(yrMatch[1], 10) * 12;
   if (moMatch) months += parseInt(moMatch[1], 10);
 
-  // If no match, try "Month Year - Month Year" format
   if (months === 0) {
     var dateMatch = text.match(
       /(\w+\s+\d{4})\s*[-\u2013]\s*(\w+\s+\d{4}|Present)/i
@@ -571,14 +522,13 @@ function sleep(ms) {
 // Initialize
 // ---------------------------------------------------------------------------
 
-// Wait for page to be reasonably loaded
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", injectButton);
 } else {
   injectButton();
 }
 
-// Re-inject if SPA navigation changes the page
+// Re-inject on SPA navigation
 var lastUrl = location.href;
 var observer = new MutationObserver(function () {
   if (location.href !== lastUrl) {

@@ -3,7 +3,7 @@
   "name": "LinkedIn Profile Optimizer",
   "version": "1.0.0",
   "description": "Analyze and optimize your LinkedIn profile for PE recruiters. One-click profile scoring.",
-  "permissions": ["activeTab"],
+  "permissions": ["activeTab", "storage"],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -14,6 +14,11 @@
       "matches": ["https://www.linkedin.com/in/*"],
       "js": ["content.js"],
       "css": ["content.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://linkedin-optimizer-web.vercel.app/*"],
+      "js": ["inject.js"],
       "run_at": "document_idle"
     }
   ],
